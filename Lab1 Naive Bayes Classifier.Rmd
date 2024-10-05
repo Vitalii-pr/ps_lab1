@@ -182,7 +182,7 @@ positive examples as a histogram, word cloud etc. Be creative!
 
 ```{r}
 positive_examples <- tidy_text %>% filter(sentiment == "positive")
-neutral_examples <- tidy_text %>% filter(sentiment == "positive")
+neutral_examples <- tidy_text %>% filter(sentiment == "neutral")
 negative_examples <- tidy_text %>% filter(sentiment == "negative")
 
 
