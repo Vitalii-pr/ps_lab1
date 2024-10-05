@@ -159,11 +159,14 @@ splitted_stop_words <- splitted_stop_words[[1]]
 ```{r}
 train <-  read.csv(file = train_path, stringsAsFactors = FALSE)
 test <-  read.csv(file = test_path, stringsAsFactors = FALSE)
+
 ```
 
 ```{r}
-# note the power functional features of R bring us! 
-tidy_text <- unnest_tokens(train, 'splitted', 'text', token="words") %>%
+train$text <- tolower(gsub("[.,?;\"-]", "", train$text))
+train$text <- gsub(" '([^\\s]+)", "'\\1", train$text, perl=TRUE)
+
+tidy_text <- unnest_tokens(train, 'splitted', 'text', token = "words", strip_punct = TRUE) %>%
              filter(!splitted %in% splitted_stop_words)
 
 tidy_text %>% count(splitted,sort=TRUE)
@@ -179,8 +182,12 @@ positive examples as a histogram, word cloud etc. Be creative!
 
 ```{r}
 positive_examples <- tidy_text %>% filter(sentiment == "positive")
+neutral_examples <- tidy_text %>% filter(sentiment == "positive")
 negative_examples <- tidy_text %>% filter(sentiment == "negative")
+
+
 positive_word_counts <- positive_examples %>% count(splitted, sort = TRUE)
+neutral_word_counts <- neutral_examples %>% count(splitted, sort = TRUE)
 negative_word_counts <- negative_examples %>% count(splitted, sort = TRUE)
 
 
@@ -189,6 +196,11 @@ ggplot(positive_word_counts %>% slice_max(n, n = 10),aes(x = reorder(splitted, n
   geom_bar(stat = "identity", fill = "blue") +
   coord_flip() +
   labs(title = "Top Words in Positive Examples", x = "Words", y = "Frequency")
+
+ggplot(neutral_word_counts %>% slice_max(n, n = 10),aes(x = reorder(splitted, n), y = n)) +
+  geom_bar(stat = "identity", fill = "green") +
+  coord_flip() +
+  labs(title = "Top Words in Neutral Examples", x = "Words", y = "Frequency")
 
 ggplot(negative_word_counts %>% slice_max(n, n = 10), aes(x = reorder(splitted, n), y = n)) +
   geom_bar(stat = "identity", fill = "red") +
@@ -199,6 +211,9 @@ ggplot(negative_word_counts %>% slice_max(n, n = 10), aes(x = reorder(splitted, 
 
 wordcloud(words = positive_word_counts$splitted, freq = positive_word_counts$n, 
           max.words = 100, colors = "blue", random.order = FALSE)
+
+wordcloud(words = neutral_word_counts$splitted, freq = neutral_word_counts$n, 
+          max.words = 100, colors = "green", random.order = FALSE)
 
 wordcloud(words = negative_word_counts$splitted, freq = negative_word_counts$n, 
           max.words = 100, colors = "red", random.order = FALSE)
