@@ -34,6 +34,7 @@ It is a **probabilistic classifier**, which means it predicts based on
 the probability of an observation belonging to each class. To compute
 it, this algorithm uses **Bayes' formula,** that you probably already
 came across in **Lesson 3:**
+
 $$\mathsf{P}(\mathrm{class}\mid \mathrm{observation})=\frac{\mathsf{P}(\mathrm{observation}\mid\mathrm{class})\mathsf{P}(\mathrm{class})}{\mathsf{P}(\mathrm{observation})}$$
 
 Under the strong **independence** assumption, one can calculate
@@ -101,6 +102,9 @@ library(readr)
 library(dplyr)
 library(ggplot2)
 library(wordcloud)
+library(ggplot2)
+library(psych)
+library(readr)
 ```
 
 ## Outline of the work
@@ -152,7 +156,7 @@ train_path <- "3-sentiment/train.csv"
 
 stop_words <- read_file("stop_words.txt")
 # https://stackoverflow.com/questions/27195912/why-does-strsplit-return-a-list
-splitted_stop_words <- strsplit(stop_words, split='\n')
+splitted_stop_words <- strsplit(stop_words, split='[\r\n]+')
 splitted_stop_words <- splitted_stop_words[[1]]
 ```
 
@@ -192,6 +196,8 @@ negative_word_counts <- negative_examples %>% count(splitted, sort = TRUE)
 
 
 
+
+
 ggplot(positive_word_counts %>% slice_max(n, n = 10),aes(x = reorder(splitted, n), y = n)) +
   geom_bar(stat = "identity", fill = "blue") +
   coord_flip() +
@@ -207,8 +213,6 @@ ggplot(negative_word_counts %>% slice_max(n, n = 10), aes(x = reorder(splitted, 
   coord_flip() +
   labs(title = "Top Words in Negative Examples", x = "Words", y = "Frequency")
 
-
-
 wordcloud(words = positive_word_counts$splitted, freq = positive_word_counts$n, 
           max.words = 100, colors = "blue", random.order = FALSE)
 
@@ -218,46 +222,176 @@ wordcloud(words = neutral_word_counts$splitted, freq = neutral_word_counts$n,
 wordcloud(words = negative_word_counts$splitted, freq = negative_word_counts$n, 
           max.words = 100, colors = "red", random.order = FALSE)
 
+
+
 ```
+```{r}
+library(tm)
+library(SnowballC)
+
+# Load the dataset
+data <- read.csv("3-sentiment/train.csv")
+# Create a corpus from the text column
+corpus <- Corpus(VectorSource(data$text))
+
+# Preprocess the text data
+
+corpus <- tm_map(corpus, content_transformer(tolower))        # Convert to lowercase
+corpus <- tm_map(corpus, removePunctuation)                   # Remove punctuation
+corpus <- tm_map(corpus, removeNumbers)                       # Remove numbers
+corpus <- tm_map(corpus, removeWords, stopwords("english"))   # Remove stopwords
+corpus <- tm_map(corpus, stripWhitespace)      
+corpus <- tm_map(corpus, stemDocument)
+
+# Create a Document-Term Matrix (Bag-of-Words)
+dtm <- DocumentTermMatrix(corpus)
+
+# Inspect the matrix
+inspect(dtm)
+
+# Convert to a matrix
+bow_matrix <- as.matrix(dtm)
+
+# Check the dimensions of the Bag-of-Words matrix
+dim(bow_matrix)
+
+
+vocabulary <- Terms(dtm)
+print(vocabulary)
+
+```
+
+
 
 
 
 ## Classifier implementation
 
-```{r}
+```{r warning=TRUE}
 naiveBayes <- setRefClass("naiveBayes",
-          
-       # here it would be wise to have some vars to store intermediate result
-       # frequency dict etc. Though pay attention to bag of words! 
-       fields = list(),
-       methods = list(
-                    # prepare your training data as X - bag of words for each of your
-                    # messages and corresponding label for the message encoded as 0 or 1 
-                    # (binary classification task)
-                    fit = function(X, y)
-                    {
-                         # TODO
-                    },
-                    
-                    # return prediction for a single message 
-                    predict = function(message)
-                    {
-                         # TODO
-                    },
-                    
-                    # score you test set so to get the understanding how well you model
-                    # works.
-                    # look at f1 score or precision and recall
-                    # visualize them 
-                    # try how well your model generalizes to real world data! 
-                    score = function(X_test, y_test)
-                    {
-                         # TODO
-                    }
-))
+  fields = list(
+    classes = "character",
+    class_priors = "table",
+    word_frequencies = "list",
+    vocabulary = "character",
+    word_probabilities = "list"
+  ),
+  methods = list(
+    fit = function(X, y) {
+      y <- factor(y, levels = c("positive", "negative", "neutral"))
+      classes <<- levels(y)
+
+      word_frequencies <<- lapply(classes, function(class) list())
+      
+      class_counts <- table(y)
+      class_priors <<- class_counts / length(y)
+      names(class_priors) <<- classes
+
+      for (i in seq_along(X)) {
+        words <- tolower(strsplit(X[i], "\\W+")[[1]])
+        class <- as.character(y[i])
+        
+        for (word in words) {
+          if (word != "") {
+            if (is.null(word_frequencies[[class]][[word]])) {
+              word_frequencies[[class]][[word]] <- 1
+            } else {
+              word_frequencies[[class]][[word]] <- word_frequencies[[class]][[word]] + 1
+            }
+          }
+        }
+      }
+
+      vocab_all <- unlist(lapply(classes, function(class) names(word_frequencies[[class]])))
+      vocabulary <<- unique(vocab_all)
+      
+      word_probabilities <<- lapply(classes, function(class) {
+        total_words <- sum(unlist(word_frequencies[[class]]))
+        vocab_size <- length(vocabulary)
+        
+        sapply(vocabulary, function(word) {
+          word_count <- ifelse(is.null(word_frequencies[[class]][[word]]), 
+                              0, word_frequencies[[class]][[word]])
+          (word_count + 1) / (total_words + vocab_size)
+        })
+      })
+      names(word_probabilities) <<- classes
+    },
+    
+    predict = function(message) {
+      words <- tolower(strsplit(message, "\\W+")[[1]])
+      
+      log_probs <- numeric(length(classes))
+      names(log_probs) <- classes
+      
+      for (class in classes) {
+        log_probs[class] <- log(class_priors[class])
+        
+        for (word in words) {
+          if (word != "" && word %in% vocabulary) {
+            log_probs[class] <- log_probs[class] + 
+              log(word_probabilities[[class]][word])
+          }
+        }
+      }
+      
+      return(names(which.max(log_probs)))
+    },
+    
+    score = function(X_test, y_test) {
+      y_test <- factor(y_test, levels = classes)
+      predictions <- sapply(X_test, predict)
+      predictions <- factor(predictions, levels = classes)
+      
+      confusion_matrix <- table(Predicted = predictions, Actual = y_test)
+      
+      metrics <- lapply(classes, function(class) {
+        tp <- sum(predictions == class & y_test == class)
+        fp <- sum(predictions == class & y_test != class)
+        fn <- sum(predictions != class & y_test == class)
+        
+        precision <- ifelse(tp + fp == 0, 0, tp / (tp + fp))
+        recall <- ifelse(tp + fn == 0, 0, tp / (tp + fn))
+        f1_score <- ifelse(precision + recall == 0, 0, 
+                           2 * (precision * recall) / (precision + recall))
+        
+        list(
+          precision = precision,
+          recall = recall,
+          f1_score = f1_score
+        )
+      })
+      names(metrics) <- classes
+      
+      accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+      
+      return(list(
+        confusion_matrix = confusion_matrix,
+        class_metrics = metrics,
+        overall_accuracy = accuracy
+      ))
+    }
+  )
+)
 
 model = naiveBayes()
-model$fit()
+X_train <- test$text #список речень
+y_train <- test$sentiment #список їх класів
+
+model$fit(X_train, y_train)
+
+sentiment <- model$predict("Not recommend") 
+print(sentiment)
+
+X_test <- test$text
+y_test <- test$sentiment
+scores <- model$score(X_test, y_test)
+
+print(scores$confusion_matrix)
+print(scores$class_metrics)
+print(scores$overall_accuracy)
+
+
 ```
 
 ## Measure effectiveness of your classifier
