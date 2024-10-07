@@ -15,7 +15,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Work breakdown
 
 -   *VItalii Lutsyk*:
--   *Name2 Surname2*:
+-   *Lidiia Semsichko*:
 -   *Name3 Surname3*:
 
 ## Introduction
@@ -105,6 +105,7 @@ library(wordcloud)
 library(ggplot2)
 library(psych)
 library(readr)
+library(SnowballC)
 ```
 
 ## Outline of the work
@@ -167,13 +168,23 @@ test <-  read.csv(file = test_path, stringsAsFactors = FALSE)
 ```
 
 ```{r}
+# Очищення тексту
 train$text <- tolower(gsub("[.,?;\"-]", "", train$text))
 train$text <- gsub(" '([^\\s]+)", "'\\1", train$text, perl=TRUE)
+train$text <- gsub("[0-9]+", "", train$text)
+train$text <- gsub("\\s+", " ", train$text) # Видалення зайвих пробілів
 
-tidy_text <- unnest_tokens(train, 'splitted', 'text', token = "words", strip_punct = TRUE) %>%
-             filter(!splitted %in% splitted_stop_words)
+# Заміна 'yesterday's' на 'yesterday'
+train$text <- gsub("yesterday's", "yesterday", train$text)
 
-tidy_text %>% count(splitted,sort=TRUE)
+# Розбивка тексту на токени
+tidy_text <- train %>%
+  unnest_tokens(splitted, text, token = "words", strip_punct = TRUE) %>%
+  filter(!splitted %in% splitted_stop_words)
+
+
+# Підрахунок частоти слів
+tidy_text %>% count(splitted, sort=TRUE)
 ```
 
 ## Data visualization
@@ -225,174 +236,178 @@ wordcloud(words = negative_word_counts$splitted, freq = negative_word_counts$n,
 
 
 ```
+
+
 ```{r}
-library(tm)
-library(SnowballC)
+  # Get unique words
+  unique_words <- unique(tidy_text$splitted)
+  
+  # Create a data frame with unique words
+  matrix_data <- data.frame(word = unique_words)
+  
+  # Initialize sentiment columns
+  matrix_data$positive <- 0
+  matrix_data$negative <- 0
+  matrix_data$neutral <- 0
+  
+  # Merge with positive word counts
+  matrix_data <- merge(matrix_data, positive_word_counts, by.x = "word", by.y = "splitted", all.x = TRUE)
+  matrix_data$positive[is.na(matrix_data$positive)] <- 0
+  matrix_data$positive <- ifelse(is.na(matrix_data$n), 0, matrix_data$n)
+  matrix_data$n <- NULL  # Remove the n column
+  
+  # Merge with neutral word counts
+  matrix_data <- merge(matrix_data, neutral_word_counts, by.x = "word", by.y = "splitted", all.x = TRUE)
+  matrix_data$neutral[is.na(matrix_data$neutral)] <- 0
+  matrix_data$neutral <- ifelse(is.na(matrix_data$n), 0, matrix_data$n)
+  matrix_data$n <- NULL  # Remove the n column
+  
+  # Merge with negative word counts
+  matrix_data <- merge(matrix_data, negative_word_counts, by.x = "word", by.y = "splitted", all.x = TRUE)
+  matrix_data$negative[is.na(matrix_data$negative)] <- 0
+  matrix_data$negative <- ifelse(is.na(matrix_data$n), 0, matrix_data$n)
+  matrix_data$n <- NULL  # Remove the n column
 
-# Load the dataset
-data <- read.csv("3-sentiment/train.csv")
-# Create a corpus from the text column
-corpus <- Corpus(VectorSource(data$text))
 
-# Preprocess the text data
-
-corpus <- tm_map(corpus, content_transformer(tolower))        # Convert to lowercase
-corpus <- tm_map(corpus, removePunctuation)                   # Remove punctuation
-corpus <- tm_map(corpus, removeNumbers)                       # Remove numbers
-corpus <- tm_map(corpus, removeWords, stopwords("english"))   # Remove stopwords
-corpus <- tm_map(corpus, stripWhitespace)      
-corpus <- tm_map(corpus, stemDocument)
-
-# Create a Document-Term Matrix (Bag-of-Words)
-dtm <- DocumentTermMatrix(corpus)
-
-# Inspect the matrix
-inspect(dtm)
-
-# Convert to a matrix
-bow_matrix <- as.matrix(dtm)
-
-# Check the dimensions of the Bag-of-Words matrix
-dim(bow_matrix)
-
-
-vocabulary <- Terms(dtm)
-print(vocabulary)
 
 ```
 
 
+```{r}
+naiveBayes <- setRefClass("naiveBayes",
+                          
+       # here it would be wise to have some vars to store intermediate result
+       # frequency dict etc. Though pay attention to bag of words! 
+       fields = list(),
+       methods = list(
+                    # prepare your training data as X - bag of words for each of your
+                    # messages and corresponding label for the message encoded as 0 or 1 
+                    # (binary classification task)
+                    fit = function(X, y)
+                    {
+                      if (!all(c("positive", "negative", "neutral") %in% colnames(X))) {
+                         stop("X повинна містити стовпці 'positive', 'negative' і 'neutral'.")
+                       }
+                
+                       # Розрахунок загальної кількості слів для кожного настрою
+                       total_positive <- sum(X$positive)
+                       total_negative <- sum(X$negative)
+                       total_neutral <- sum(X$neutral)
+                
+                       # Створення матриці пропорцій
+                       proportion_matrix <- as.data.frame(matrix(0, nrow = nrow(X), ncol = 3))
+                       colnames(proportion_matrix) <- c("positive", "negative", "neutral")
+                       rownames(proportion_matrix) <- X$word
+                
+                       # Обчислення пропорцій
+                       proportion_matrix[,"positive"] <- format(X$positive / total_positive, scientific = FALSE)
+                       proportion_matrix[,"negative"] <- format(X$negative / total_negative, scientific = FALSE)
+                       proportion_matrix[,"neutral"] <-  format(X$neutral / total_neutral, scientific = FALSE)
+                       proportion_matrix <- t(proportion_matrix)
+                       return(proportion_matrix)
+                    },
+                    
+                    # return prediction for a single message 
+                    predict = function(message, word_frequencies, sentiment_freq)
+                    {
+                        message <- tolower(gsub("[.,?;\"-]", "", message))
+                        message_words <- unlist(strsplit(message, " "))
+                        sentiment_probs <- rep(0, nrow(word_frequencies))
+                        names(sentiment_probs) <- rownames(word_frequencies)
+                        for (sentiment in rownames(word_frequencies)) {
+                            prob_sentiment <- sentiment_freq[sentiment, ]
+                            prob <- as.numeric(prob_sentiment)
+                            for (word in message_words) {
+                                if (word %in% colnames(word_frequencies)) {
+                                  if (word == "") {
+                                      cat("The message is empty after cleaning.\n")
+                                      return(NA)
+                                  }
+                                  
+                                  word_prob <- as.numeric(word_frequencies[sentiment, word])
+                                  if (word_prob == 0) {
+                                      word_prob <- 1e-6
+                                  }
+                                  prob <- prob * word_prob
+                              } else {
+                                  prob <- prob * 0.000000001
+                              }
+                            }
+                            sentiment_probs[sentiment] <- format(prob, scientific = FALSE)
+                        }
+                        predicted_sentiment <- names(which.max(sentiment_probs))
+                        return(predicted_sentiment)
+                    },
+                    
+                    # score you test set so to get the understanding how well you model
+                    # works.
+                    # look at f1 score or precision and recall
+                    # visualize them 
+                    # try how well your model generalizes to real world data! 
+                    score = function(X_test, y_test, word_frequencies, author_freq)
+                    {
+                        stop_words <- tolower(readLines("stop_words.txt"))
+                        cleaned_messages <- sapply(X_test, function(message) {
+                            clean_content <- tolower(gsub("[.,?;\"-]", "", message))
+                            words <- unlist(strsplit(clean_content, " "))
+                            words <- words[!words %in% stop_words]
+                            return(paste(words, collapse = " "))
+                        })
+  
+                        predictions <- character(length(cleaned_messages))
+                    
+                        for (i in seq_along(cleaned_messages)) {
+                            predictions[i] <- predict(cleaned_messages[i], word_frequencies, author_freq)
+                        }
+                    
+                        unique_authors <- unique(y_test[!is.na(y_test)])
+                        confusion_matrix <- matrix(0, nrow = length(unique_authors), ncol = length(unique_authors))
+                        rownames(confusion_matrix) <- unique_authors
+                        colnames(confusion_matrix) <- unique_authors
+                    
+                        for (i in seq_along(predictions)) {
+                            actual <- y_test[i]
+                            predicted <- predictions[i]
+                            if (!is.na(actual) && !is.na(predicted)) {
+                                confusion_matrix[actual, predicted] <- confusion_matrix[actual, predicted] + 1
+                            }
+                        }
+                    
+                        accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+                    
+                        print(confusion_matrix)
+                        cat("Accuracy:", accuracy, "\n")
+                        
+                        return(list(confusion_matrix = confusion_matrix, accuracy = accuracy))
+                    }
+))
+
+sentiments <- tidy_text$sentiment
+sentiments_count <- table(sentiments)
+probabilities <- sentiments_count/ sum(sentiments_count)
+sentiment_matrix <- matrix(probabilities, nrow = 3, ncol = 1)
+
+rownames(sentiment_matrix) <- c('negative','neutral','positive')
+colnames(sentiment_matrix) <- "Probability"
+
+X = matrix_data
+y = tidy_text$sentiment
+model = naiveBayes()
+proportion_matrix = model$fit(X, y)
+
+message = "value according access"
+prediction = model$predict(message, proportion_matrix, sentiment_matrix)
+
+X_test <- test$text
+y_test <- test$sentiment
+score_result <- model$score(X_test, y_test, proportion_matrix, sentiment_matrix)
+```
 
 
 
 ## Classifier implementation
 
-```{r warning=TRUE}
-naiveBayes <- setRefClass("naiveBayes",
-  fields = list(
-    classes = "character",
-    class_priors = "table",
-    word_frequencies = "list",
-    vocabulary = "character",
-    word_probabilities = "list"
-  ),
-  methods = list(
-    fit = function(X, y) {
-      y <- factor(y, levels = c("positive", "negative", "neutral"))
-      classes <<- levels(y)
 
-      word_frequencies <<- lapply(classes, function(class) list())
-      
-      class_counts <- table(y)
-      class_priors <<- class_counts / length(y)
-      names(class_priors) <<- classes
-
-      for (i in seq_along(X)) {
-        words <- tolower(strsplit(X[i], "\\W+")[[1]])
-        class <- as.character(y[i])
-        
-        for (word in words) {
-          if (word != "") {
-            if (is.null(word_frequencies[[class]][[word]])) {
-              word_frequencies[[class]][[word]] <- 1
-            } else {
-              word_frequencies[[class]][[word]] <- word_frequencies[[class]][[word]] + 1
-            }
-          }
-        }
-      }
-
-      vocab_all <- unlist(lapply(classes, function(class) names(word_frequencies[[class]])))
-      vocabulary <<- unique(vocab_all)
-      
-      word_probabilities <<- lapply(classes, function(class) {
-        total_words <- sum(unlist(word_frequencies[[class]]))
-        vocab_size <- length(vocabulary)
-        
-        sapply(vocabulary, function(word) {
-          word_count <- ifelse(is.null(word_frequencies[[class]][[word]]), 
-                              0, word_frequencies[[class]][[word]])
-          (word_count + 1) / (total_words + vocab_size)
-        })
-      })
-      names(word_probabilities) <<- classes
-    },
-    
-    predict = function(message) {
-      words <- tolower(strsplit(message, "\\W+")[[1]])
-      
-      log_probs <- numeric(length(classes))
-      names(log_probs) <- classes
-      
-      for (class in classes) {
-        log_probs[class] <- log(class_priors[class])
-        
-        for (word in words) {
-          if (word != "" && word %in% vocabulary) {
-            log_probs[class] <- log_probs[class] + 
-              log(word_probabilities[[class]][word])
-          }
-        }
-      }
-      
-      return(names(which.max(log_probs)))
-    },
-    
-    score = function(X_test, y_test) {
-      y_test <- factor(y_test, levels = classes)
-      predictions <- sapply(X_test, predict)
-      predictions <- factor(predictions, levels = classes)
-      
-      confusion_matrix <- table(Predicted = predictions, Actual = y_test)
-      
-      metrics <- lapply(classes, function(class) {
-        tp <- sum(predictions == class & y_test == class)
-        fp <- sum(predictions == class & y_test != class)
-        fn <- sum(predictions != class & y_test == class)
-        
-        precision <- ifelse(tp + fp == 0, 0, tp / (tp + fp))
-        recall <- ifelse(tp + fn == 0, 0, tp / (tp + fn))
-        f1_score <- ifelse(precision + recall == 0, 0, 
-                           2 * (precision * recall) / (precision + recall))
-        
-        list(
-          precision = precision,
-          recall = recall,
-          f1_score = f1_score
-        )
-      })
-      names(metrics) <- classes
-      
-      accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
-      
-      return(list(
-        confusion_matrix = confusion_matrix,
-        class_metrics = metrics,
-        overall_accuracy = accuracy
-      ))
-    }
-  )
-)
-
-model = naiveBayes()
-X_train <- test$text #список речень
-y_train <- test$sentiment #список їх класів
-
-model$fit(X_train, y_train)
-
-sentiment <- model$predict("Not recommend") 
-print(sentiment)
-
-X_test <- test$text
-y_test <- test$sentiment
-scores <- model$score(X_test, y_test)
-
-print(scores$confusion_matrix)
-print(scores$class_metrics)
-print(scores$overall_accuracy)
-
-
-```
 
 ## Measure effectiveness of your classifier
 
