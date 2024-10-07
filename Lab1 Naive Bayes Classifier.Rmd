@@ -344,26 +344,26 @@ naiveBayes <- setRefClass("naiveBayes",
                     # look at f1 score or precision and recall
                     # visualize them 
                     # try how well your model generalizes to real world data! 
-                    score = function(X_test, y_test, word_frequencies, author_freq)
+                    score = function(X_test, y_test, word_frequencies, sentiment_freq)
                     {
                         stop_words <- tolower(readLines("stop_words.txt"))
                         cleaned_messages <- sapply(X_test, function(message) {
-                            clean_content <- tolower(gsub("[.,?;\"-]", "", message))
-                            words <- unlist(strsplit(clean_content, " "))
-                            words <- words[!words %in% stop_words]
-                            return(paste(words, collapse = " "))
+                        clean_content <- tolower(gsub("[.,?;\"-]", "", message))
+                        words <- unlist(strsplit(clean_content, " "))
+                        words <- words[!words %in% stop_words]
+                        return(paste(words, collapse = " "))
                         })
   
                         predictions <- character(length(cleaned_messages))
                     
                         for (i in seq_along(cleaned_messages)) {
-                            predictions[i] <- predict(cleaned_messages[i], word_frequencies, author_freq)
+                            predictions[i] <- predict(cleaned_messages[i], word_frequencies, sentiment_freq)
                         }
                     
-                        unique_authors <- unique(y_test[!is.na(y_test)])
-                        confusion_matrix <- matrix(0, nrow = length(unique_authors), ncol = length(unique_authors))
-                        rownames(confusion_matrix) <- unique_authors
-                        colnames(confusion_matrix) <- unique_authors
+                        unique_sentiments <- unique(y_test[!is.na(y_test)])
+                        confusion_matrix <- matrix(0, nrow = length(unique_sentiments), ncol = length(unique_sentiments))
+                        rownames(confusion_matrix) <- unique_sentiments
+                        colnames(confusion_matrix) <- unique_sentiments
                     
                         for (i in seq_along(predictions)) {
                             actual <- y_test[i]
