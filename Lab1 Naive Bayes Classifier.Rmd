@@ -570,3 +570,36 @@ below.
     nature of your data etc.
 -   Explain why accuracy is not a good choice for the base metrics for
     classification tasks. Why F1 score is always preferable?
+
+
+In this lab, we implemented a Naive Bayes classifier to predict sentiments 
+of sentences as positive, neutral or negative. Our solution is based on Bayes' theorem. 
+The classifier is operating under the strong independence assumption, 
+what allows us to estimate probability of each class. 
+Method "fit" estimates the prior probabilities of each class and 
+computes the word frequencies for each class based on the training data.
+Method "predict" calculates probabilities of given message, 
+returning the class with the highest probability.
+And "score" estimates performance on a test dataset, 
+also precision, recall, and F1 scores are calculated for each class.
+
+The pros of our method are: 
+The Naive Bayes is fast, it works well on large text data sets, 
+because we only need to count frequencies of words, this is also good for memory.
+However, there are also cons of the method: this method works under independents assumptions, 
+it may not see some additional features: some words in 
+sentence might be more important then the others or combination of several words might
+affect general sentiment. 
+
+It's better to use F1 score, because it provides a balance between precision and recall,
+considering different cases of true/false assumtions for all sentiments.
+Accuracy, however, is not the best choice if classifier is imbalanced,
+since it doesn't account for the distribution of classes: in a dataset where majority of the samples belong to one
+class, high accuracy can be achieved, but it will not work properly enought.
+
+To sum up, Naive Bayes classifier is a good solution for 
+this data set, it requiers not much memory and gives relatively accurate results, 
+however it might not work as well for another type of tasks.
+While measuring the results, it's important to count F1, because 
+it allows us to see effectiveness of different scenarios.
+
