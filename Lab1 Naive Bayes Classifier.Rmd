@@ -439,6 +439,125 @@ print(scores$overall_accuracy)
 
 -   Show failure cases.
 
+```{r}
+
+library(ggplot2)
+library(reshape2)
+
+confusion_matrix <- scores$confusion_matrix
+class_metrics <- scores$class_metrics
+accuracy <- scores$overall_accuracy
+
+levels_order <- c("positive", "negative", "neutral")
+
+
+conf_matrix_df <- as.data.frame(as.table(confusion_matrix))
+colnames(conf_matrix_df) <- c("Predicted", "Actual", "Freq")
+conf_matrix_df$Predicted <- factor(conf_matrix_df$Predicted, levels = rev(levels_order))
+conf_matrix_df$Actual <- factor(conf_matrix_df$Actual, levels = levels_order)
+
+
+ggplot(conf_matrix_df, aes(x = Actual, y = Predicted, fill = Freq)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "green") +
+  geom_text(aes(label = Freq), color = "black", size = 5) +
+  labs(title = "Confusion Matrix", x = "Actual Class", y = "Predicted Class") +
+  theme_minimal()
+
+library(gridExtra)
+
+metrics_df <- do.call(rbind, lapply(class_metrics, as.data.frame))
+metrics_df$class <- factor(rownames(metrics_df), levels = levels_order)
+metrics_long <- melt(metrics_df, id.vars = "class")
+
+class_colors <- c("positive" = "steelblue", "negative" = "orange", "neutral" = "purple")
+
+ggplot(metrics_long, aes(x = class, y = value, fill = class)) +
+  geom_bar(stat = "identity", position = position_dodge(), show.legend = FALSE) +
+  labs(x = "Class", y = "Score") +
+  scale_fill_manual(values = class_colors) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  facet_wrap(~ variable, nrow = 1, labeller = as_labeller(c(precision = "Precision", recall = "Recall", f1_score = "F1 Score"))) +
+  theme(strip.background = element_rect(fill = "lightgrey"),
+        strip.text = element_text(size = 12))
+```
+
+
+```{r}
+
+library(tidytext)
+library(dplyr)
+library(ggplot2)
+
+predictions <- sapply(X_test, model$predict)
+predictions <- factor(predictions, levels = c("positive", "negative", "neutral"))
+
+results <- data.frame(
+  Actual = y_test,
+  Predicted = predictions,
+  Text = X_test,
+  stringsAsFactors = FALSE
+)
+
+false_positive_to_negative <- results[results$Predicted == "positive" & (results$Actual == "negative"), ]
+false_positive_to_neutral <- results[results$Predicted == "positive" & (results$Actual == "neutral"), ]
+false_negative_to_positive <- results[results$Predicted == "negative" & (results$Actual == "positive"), ]
+false_negative_to_neutral <- results[results$Predicted == "negative" & (results$Actual == "neutral"), ]
+false_neutral_to_positive <- results[results$Predicted == "neutral" & (results$Actual == "positive"), ]
+false_neutral_to_negative <- results[results$Predicted == "neutral" & (results$Actual == "negative"), ]
+
+data("stop_words")
+
+count_common_words <- function(data) {
+  tidy_data <- data %>%
+    unnest_tokens(word, Text) %>%
+    anti_join(stop_words, by = "word") %>%
+    count(word, sort = TRUE) %>%
+    top_n(10, n)
+  
+  return(tidy_data)
+}
+
+fp_to_negative_word_counts <- count_common_words(false_positive_to_negative)
+fp_to_neutral_word_counts <- count_common_words(false_positive_to_neutral)
+fn_to_positive_word_counts <- count_common_words(false_negative_to_positive)
+fn_to_neutral_word_counts <- count_common_words(false_negative_to_neutral)
+neut_to_positive_word_counts <- count_common_words(false_neutral_to_positive)
+neut_to_negative_word_counts <- count_common_words(false_neutral_to_negative)
+
+plot_word_counts <- function(word_counts, title) {
+  ggplot(word_counts, aes(x = reorder(word, n), y = n)) +
+    geom_bar(stat = "identity", fill = "lightblue") +
+    coord_flip() +
+    labs(title = title, x = "Words", y = "Frequency") +
+    theme_minimal()
+}
+
+plot_word_counts(fp_to_negative_word_counts, "Top Words in False Positives to Negative")
+plot_word_counts(fp_to_neutral_word_counts, "Top Words in False Positives to Neutral")
+plot_word_counts(fn_to_positive_word_counts, "Top Words in False Negatives to Positive")
+plot_word_counts(fn_to_neutral_word_counts, "Top Words in False Negatives to Neutral")
+plot_word_counts(neut_to_positive_word_counts, "Top Words in Neutral to Positive")
+plot_word_counts(neut_to_negative_word_counts, "Top Words in Neutral to Negative")
+
+library(tidytext)
+library(dplyr)
+library(ggplot2)
+
+predictions <- sapply(X_test, model$predict)
+predictions <- factor(predictions, levels = c("positive", "negative", "neutral"))
+
+results <- data.frame(
+  Actual = y_test,
+  Predicted = predictions,
+  Text = X_test,
+  stringsAsFactors = FALSE
+)
+```
+
+
+
 ## Conclusions
 
 Summarize your work by explaining in a few sentences the points listed
