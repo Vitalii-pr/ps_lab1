@@ -454,6 +454,79 @@ score_result <- model$score(X_test, y_test, proportion_matrix, sentiment_matrix)
 
 -   Show failure cases.
 
+
+
+```{r}
+library(ggplot2)
+library(reshape2)
+
+calculate_metrics <- function(confusion_matrix) {
+  TP <- diag(confusion_matrix)
+  FP <- colSums(confusion_matrix) - TP
+  FN <- rowSums(confusion_matrix) - TP
+  TN <- sum(confusion_matrix) - (TP + FP + FN)
+
+ precision <- TP / (TP + FP)
+ recall <- TP / (TP + FN)
+ f1 <- 2 * (precision * recall) / (precision + recall)
+
+  metrics <- data.frame(Precision = precision, Recall = recall, F1 = f1)
+  rownames(metrics) <- rownames(confusion_matrix)
+  return(metrics)
+}
+
+score_result <- model$score(X_test, y_test, proportion_matrix, sentiment_matrix)
+conf_matrix <- score_result$confusion_matrix
+
+metrics <- calculate_metrics(conf_matrix)
+
+print(conf_matrix)
+print(metrics)
+
+conf_matrix <- conf_matrix[c("neutral", "negative", "positive"), c("neutral", "negative", "positive")]
+
+confusion_melt <- melt(conf_matrix)
+colnames(confusion_melt) <- c("Actual", "Predicted", "Count")
+
+confusion_melt$Predicted <- factor(confusion_melt$Predicted, levels = c("positive", "negative", "neutral"))
+confusion_melt$Actual <- factor(confusion_melt$Actual, levels = c("positive", "negative", "neutral"))
+
+ggplot(confusion_melt, aes(x = Predicted, y = Actual)) +
+  geom_tile(aes(fill = Count), color = "white") +
+  scale_fill_gradient(low = "white", high = "green") +
+  geom_text(aes(label = Count), color = "black") +
+  labs(title = "Confusion Matrix", fill = "Count")
+
+
+precision_df <- data.frame(Class = rownames(metrics), Score = metrics$Precision)
+recall_df <- data.frame(Class = rownames(metrics), Score = metrics$Recall)
+f1_df <- data.frame(Class = rownames(metrics), Score = metrics$F1)
+
+
+precision_df$Class <- factor(precision_df$Class, levels = c("positive", "negative", "neutral"))
+recall_df$Class <- factor(recall_df$Class, levels = c("positive", "negative", "neutral"))
+f1_df$Class <- factor(f1_df$Class, levels = c("positive", "negative", "neutral"))
+
+ggplot(precision_df, aes(x = Class, y = Score, fill = Class)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  scale_fill_manual(values = c("green", "blue", "orange")) +
+  labs(title = "Precision by Class", x = "Class", y = "Precision") +
+  theme_minimal()
+
+ggplot(recall_df, aes(x = Class, y = Score, fill = Class)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  scale_fill_manual(values = c("green", "blue", "orange")) +
+  labs(title = "Recall by Class", x = "Class", y = "Recall") +
+  theme_minimal()
+
+ggplot(f1_df, aes(x = Class, y = Score, fill = Class)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  scale_fill_manual(values = c("green", "blue", "orange")) + 
+  labs(title = "F1 Score by Class", x = "Class", y = "F1 Score") +
+  theme_minimal()
+
+```
+
 ## Conclusions
 
 Summarize your work by explaining in a few sentences the points listed
